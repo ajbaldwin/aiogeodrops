@@ -18,15 +18,20 @@ from .conftest import API, QUERIES, RESULTS, TOKEN, UNREACHABLE, FakeGoogle, que
 
 
 def _bigquery(
-    session: aiohttp.ClientSession, key_json: str, api_root: str, project: str = "my-project"
+    session: aiohttp.ClientSession,
+    key_json: str,
+    google: FakeGoogle,
+    api_root: str | None = None,
+    project: str = "my-project",
 ) -> BigQuery:
-    tokens = TokenSource(session, ServiceAccountKey.from_json(key_json))
-    return BigQuery(session, tokens, project, api_root=api_root)
+    key = ServiceAccountKey.from_json(key_json)
+    tokens = TokenSource(session, key, token_uri=google.url(TOKEN))
+    return BigQuery(session, tokens, project, api_root=api_root or google.url(API))
 
 
 @pytest.fixture
 def bigquery(session: aiohttp.ClientSession, key_json: str, google: FakeGoogle) -> BigQuery:
-    return _bigquery(session, key_json, google.url(API))
+    return _bigquery(session, key_json, google)
 
 
 def test_parse_rows_converts_by_schema_type() -> None:
@@ -111,8 +116,30 @@ async def test_project_id_is_escaped_in_the_path(
 ) -> None:
     google.token_ok()
     google.reply("POST", f"{API}/projects/example.com:proj/queries", json=query_result([], []))
-    bigquery = _bigquery(session, key_json, google.url(API), project="example.com:proj")
+    bigquery = _bigquery(session, key_json, google, project="example.com:proj")
     assert await bigquery.query("SELECT 1") == []
+
+
+async def test_a_slash_in_the_project_id_cannot_change_the_path(
+    session: aiohttp.ClientSession, key_json: str, google: FakeGoogle
+) -> None:
+    google.token_ok()
+    google.reply("POST", f"{API}/projects/a/../b/queries", json=query_result([], []))
+    bigquery = _bigquery(session, key_json, google, project="a/../b")
+    assert await bigquery.query("SELECT 1") == []
+    (request,) = google.sent("POST", f"{API}/projects/a/../b/queries")
+    assert request.raw_path == f"{API}/projects/a%2F..%2Fb/queries"
+
+
+async def test_a_redirect_is_not_followed(bigquery: BigQuery, google: FakeGoogle) -> None:
+    # The bearer token must only ever go to the API root it was meant for.
+    google.token_ok()
+    google.reply(
+        "POST", QUERIES, status=302, body="", headers={"Location": google.url("/elsewhere")}
+    )
+    with pytest.raises(GeoDropsQueryError, match="302"):
+        await bigquery.query("SELECT 1")
+    assert google.sent("POST", "/elsewhere") == []
 
 
 async def test_query_waits_for_a_slow_job(bigquery: BigQuery, google: FakeGoogle) -> None:
@@ -249,7 +276,7 @@ async def test_network_failure_is_a_connection_error(
     session: aiohttp.ClientSession, key_json: str, google: FakeGoogle
 ) -> None:
     google.token_ok()
-    bigquery = _bigquery(session, key_json, f"{UNREACHABLE}{API}")
+    bigquery = _bigquery(session, key_json, google, api_root=f"{UNREACHABLE}{API}")
     with pytest.raises(GeoDropsConnectionError, match="BigQuery request failed"):
         await bigquery.query("SELECT 1")
 

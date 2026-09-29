@@ -26,6 +26,7 @@ class Sent:
 
     method: str
     path: str
+    raw_path: str
     query: dict[str, str]
     headers: dict[str, str]
     json: Any = None
@@ -38,6 +39,7 @@ class _Reply:
     payload: Any
     body: str | None
     delay: float
+    headers: dict[str, str]
 
 
 class FakeGoogle:
@@ -65,8 +67,9 @@ class FakeGoogle:
         json: Any = None,
         body: str | None = None,
         delay: float = 0.0,
+        headers: dict[str, str] | None = None,
     ) -> None:
-        self._replies[(method, path)].append(_Reply(status, json, body, delay))
+        self._replies[(method, path)].append(_Reply(status, json, body, delay, headers or {}))
 
     def token_ok(self, token: str = "tok-1", expires_in: int = 3600) -> None:
         self.reply("POST", TOKEN, json={"access_token": token, "expires_in": expires_in})
@@ -75,7 +78,13 @@ class FakeGoogle:
         return [s for s in self._sent if s.method == method and s.path == path]
 
     async def handle(self, request: web.Request) -> web.StreamResponse:
-        sent = Sent(request.method, request.path, dict(request.query), dict(request.headers))
+        sent = Sent(
+            request.method,
+            request.path,
+            request.raw_path.partition("?")[0],
+            dict(request.query),
+            dict(request.headers),
+        )
         if request.content_type == "application/json":
             sent.json = await request.json()
         elif request.content_type == "application/x-www-form-urlencoded":
@@ -89,8 +98,8 @@ class FakeGoogle:
         if reply.delay:
             await asyncio.sleep(reply.delay)
         if reply.body is not None:
-            return web.Response(status=reply.status, text=reply.body)
-        return web.json_response(reply.payload, status=reply.status)
+            return web.Response(status=reply.status, text=reply.body, headers=reply.headers)
+        return web.json_response(reply.payload, status=reply.status, headers=reply.headers)
 
 
 @pytest.fixture
@@ -110,7 +119,7 @@ def rsa_key() -> rsa.RSAPrivateKey:
 
 
 @pytest.fixture
-def key_info(rsa_key: rsa.RSAPrivateKey, google: FakeGoogle) -> dict[str, str]:
+def key_info(rsa_key: rsa.RSAPrivateKey) -> dict[str, str]:
     pem = rsa_key.private_bytes(
         serialization.Encoding.PEM,
         serialization.PrivateFormat.PKCS8,
@@ -122,7 +131,7 @@ def key_info(rsa_key: rsa.RSAPrivateKey, google: FakeGoogle) -> dict[str, str]:
         "private_key_id": "kid-1",
         "private_key": pem,
         "client_email": "sa@key-project.iam.gserviceaccount.com",
-        "token_uri": google.url(TOKEN),
+        "token_uri": "https://oauth2.googleapis.com/token",
     }
 
 

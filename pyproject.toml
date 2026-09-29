@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aiogeodrops"
-version = "0.1.0"
+version = "0.1.1"
 description = "Async client for GeoDrops soil-probe readings in Google BigQuery"
 readme = "README.md"
 license = "MIT"
