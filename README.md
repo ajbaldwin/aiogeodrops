@@ -80,4 +80,8 @@ pytest --cov=aiogeodrops
 ```
 
 Releases are published to PyPI by GitHub Actions when a GitHub release is
-published.
+published, using PyPI trusted publishing (no stored token) with attestations.
+
+## License
+
+[MIT](LICENSE)

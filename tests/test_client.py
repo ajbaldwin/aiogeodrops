@@ -6,7 +6,7 @@ import pytest
 from aiogeodrops import GeoDropsClient, GeoDropsConnectionError, GeoDropsCredentialsError
 from aiogeodrops.client import TABLE, build_latest_query, build_serial_lookup_query
 
-from .conftest import API, QUERIES, FakeGoogle, query_result
+from .conftest import API, QUERIES, TOKEN, FakeGoogle, query_result
 
 _FIELDS = [
     ("deviceId", "INTEGER"),
@@ -25,7 +25,9 @@ _ROW_1002 = ["1002", "BBB222", "1727589600000000", None, None, None, None, None,
 
 @pytest.fixture
 def client(session: aiohttp.ClientSession, key_json: str, google: FakeGoogle) -> GeoDropsClient:
-    return GeoDropsClient(session, "my-project", key_json, api_root=google.url(API))
+    return GeoDropsClient(
+        session, "my-project", key_json, api_root=google.url(API), token_uri=google.url(TOKEN)
+    )
 
 
 def test_unusable_key_fails_at_construction(session: aiohttp.ClientSession) -> None:
@@ -125,7 +127,12 @@ async def test_query_timeout_is_configurable(
     session: aiohttp.ClientSession, key_json: str, google: FakeGoogle
 ) -> None:
     client = GeoDropsClient(
-        session, "my-project", key_json, query_timeout=0.05, api_root=google.url(API)
+        session,
+        "my-project",
+        key_json,
+        query_timeout=0.05,
+        api_root=google.url(API),
+        token_uri=google.url(TOKEN),
     )
     google.token_ok()
     google.reply("POST", QUERIES, json=query_result([], []), delay=0.5)

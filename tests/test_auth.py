@@ -18,18 +18,48 @@ from aiogeodrops.auth import BIGQUERY_SCOPE, DEFAULT_TOKEN_URI, ServiceAccountKe
 from .conftest import TOKEN, UNREACHABLE, FakeGoogle
 
 
-def test_key_from_json_string(key_json: str, google: FakeGoogle) -> None:
+def test_key_from_json_string(key_json: str) -> None:
     key = ServiceAccountKey.from_json(key_json)
     assert key.client_email == "sa@key-project.iam.gserviceaccount.com"
     assert key.private_key_id == "kid-1"
-    assert key.token_uri == google.url(TOKEN)
 
 
-def test_key_from_mapping_with_defaults(key_info: dict[str, str]) -> None:
-    info = {k: v for k, v in key_info.items() if k not in ("token_uri", "private_key_id")}
-    key = ServiceAccountKey.from_json(info)
-    assert key.token_uri == DEFAULT_TOKEN_URI
-    assert key.private_key_id is None
+def test_key_from_mapping_without_key_id(key_info: dict[str, str]) -> None:
+    info = {k: v for k, v in key_info.items() if k != "private_key_id"}
+    assert ServiceAccountKey.from_json(info).private_key_id is None
+
+
+def test_key_repr_hides_the_private_key(key_json: str) -> None:
+    assert "private_key=" not in repr(ServiceAccountKey.from_json(key_json))
+
+
+def test_tokens_come_from_google_by_default(
+    session: aiohttp.ClientSession, key_json: str, rsa_key: rsa.RSAPrivateKey
+) -> None:
+    tokens = TokenSource(session, ServiceAccountKey.from_json(key_json))
+    jwt.decode(
+        tokens._assertion(), rsa_key.public_key(), algorithms=["RS256"], audience=DEFAULT_TOKEN_URI
+    )
+
+
+async def test_the_keys_own_token_uri_is_ignored(
+    session: aiohttp.ClientSession,
+    google: FakeGoogle,
+    key_info: dict[str, str],
+    rsa_key: rsa.RSAPrivateKey,
+) -> None:
+    # A crafted key must not be able to send its signed assertion elsewhere.
+    google.token_ok()
+    key = ServiceAccountKey.from_json({**key_info, "token_uri": google.url("/attacker")})
+    await TokenSource(session, key, token_uri=google.url(TOKEN)).token()
+    assert google.sent("POST", "/attacker") == []
+    (request,) = google.sent("POST", TOKEN)
+    jwt.decode(
+        request.form["assertion"],
+        rsa_key.public_key(),
+        algorithms=["RS256"],
+        audience=google.url(TOKEN),
+    )
 
 
 @pytest.mark.parametrize("raw", ["not json", '"a string"', "[]", "123", "null", "{}"])
@@ -57,8 +87,8 @@ def test_non_rsa_private_key_is_a_credentials_error(key_info: dict[str, str]) ->
         ServiceAccountKey.from_json({**key_info, "private_key": pem})
 
 
-def _tokens(session: aiohttp.ClientSession, key_json: str) -> TokenSource:
-    return TokenSource(session, ServiceAccountKey.from_json(key_json))
+def _tokens(session: aiohttp.ClientSession, key_json: str, google: FakeGoogle) -> TokenSource:
+    return TokenSource(session, ServiceAccountKey.from_json(key_json), token_uri=google.url(TOKEN))
 
 
 async def test_token_request_is_a_signed_jwt_bearer_grant(
@@ -69,7 +99,7 @@ async def test_token_request_is_a_signed_jwt_bearer_grant(
 ) -> None:
     google.token_ok()
 
-    assert await _tokens(session, key_json).token() == "tok-1"
+    assert await _tokens(session, key_json, google).token() == "tok-1"
 
     (request,) = google.sent("POST", TOKEN)
     assert request.form["grant_type"] == "urn:ietf:params:oauth:grant-type:jwt-bearer"
@@ -88,7 +118,9 @@ async def test_key_without_key_id_sends_no_kid(
 ) -> None:
     google.token_ok()
     info = {k: v for k, v in key_info.items() if k != "private_key_id"}
-    await TokenSource(session, ServiceAccountKey.from_json(info)).token()
+    await TokenSource(
+        session, ServiceAccountKey.from_json(info), token_uri=google.url(TOKEN)
+    ).token()
     (request,) = google.sent("POST", TOKEN)
     assert "kid" not in jwt.get_unverified_header(request.form["assertion"])
 
@@ -103,7 +135,7 @@ async def test_token_is_cached_until_close_to_expiry(
     monkeypatch.setattr("aiogeodrops.auth.time.monotonic", lambda: now[0])
     google.token_ok("tok-1", expires_in=3600)
     google.token_ok("tok-2", expires_in=3600)
-    tokens = _tokens(session, key_json)
+    tokens = _tokens(session, key_json, google)
 
     assert await tokens.token() == "tok-1"
     now[0] += 3600 - 301
@@ -117,7 +149,7 @@ async def test_invalidate_fetches_a_new_token(
 ) -> None:
     google.token_ok("tok-1")
     google.token_ok("tok-2")
-    tokens = _tokens(session, key_json)
+    tokens = _tokens(session, key_json, google)
     assert await tokens.token() == "tok-1"
     tokens.invalidate()
     assert await tokens.token() == "tok-2"
@@ -127,7 +159,7 @@ async def test_concurrent_callers_share_one_token_request(
     session: aiohttp.ClientSession, google: FakeGoogle, key_json: str
 ) -> None:
     google.token_ok()
-    tokens = _tokens(session, key_json)
+    tokens = _tokens(session, key_json, google)
     assert await asyncio.gather(tokens.token(), tokens.token()) == ["tok-1", "tok-1"]
     assert len(google.sent("POST", TOKEN)) == 1
 
@@ -149,7 +181,7 @@ async def test_rejected_key_is_an_auth_error(
 ) -> None:
     google.reply("POST", TOKEN, status=status, json=body)
     with pytest.raises(GeoDropsAuthError, match=str(status)):
-        await _tokens(session, key_json).token()
+        await _tokens(session, key_json, google).token()
 
 
 @pytest.mark.parametrize(
@@ -171,12 +203,34 @@ async def test_google_outage_is_a_connection_error(
     # The key is fine; asking for a new one would be wrong.
     google.reply("POST", TOKEN, status=status, body=body)
     with pytest.raises(GeoDropsConnectionError, match=str(status)):
-        await _tokens(session, key_json).token()
+        await _tokens(session, key_json, google).token()
 
 
 async def test_network_failure_is_a_connection_error(
     session: aiohttp.ClientSession, key_info: dict[str, str]
 ) -> None:
-    key = ServiceAccountKey.from_json({**key_info, "token_uri": f"{UNREACHABLE}/token"})
+    key = ServiceAccountKey.from_json(key_info)
+    tokens = TokenSource(session, key, token_uri=f"{UNREACHABLE}/token")
     with pytest.raises(GeoDropsConnectionError, match="Token request failed"):
-        await TokenSource(session, key).token()
+        await tokens.token()
+
+
+async def test_a_redirect_is_not_followed(
+    session: aiohttp.ClientSession, google: FakeGoogle, key_json: str
+) -> None:
+    # Following a 307 would re-send the signed assertion to the new location.
+    google.reply("POST", TOKEN, status=307, body="", headers={"Location": google.url("/elsewhere")})
+    with pytest.raises(GeoDropsConnectionError, match="307"):
+        await _tokens(session, key_json, google).token()
+    assert google.sent("POST", "/elsewhere") == []
+
+
+@pytest.mark.parametrize("expires_in", ["soon", None, "nan", "inf", 0, -60])
+async def test_unusable_expires_in_falls_back_to_an_hour(
+    session: aiohttp.ClientSession, google: FakeGoogle, key_json: str, expires_in: Any
+) -> None:
+    google.reply("POST", TOKEN, json={"access_token": "tok-1", "expires_in": expires_in})
+    tokens = _tokens(session, key_json, google)
+    assert await tokens.token() == "tok-1"
+    # Cached: a second fetch would find no reply queued and fail the test.
+    assert await tokens.token() == "tok-1"

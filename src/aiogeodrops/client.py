@@ -7,7 +7,7 @@ from typing import Any
 
 import aiohttp
 
-from .auth import ServiceAccountKey, TokenSource
+from .auth import DEFAULT_TOKEN_URI, ServiceAccountKey, TokenSource
 from .bigquery import API_ROOT, BigQuery, QueryParameter
 from .models import DeviceReading, reading_from_row
 
@@ -59,7 +59,7 @@ class GeoDropsClient:
     User role there.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - the extras are keyword-only
         self,
         session: aiohttp.ClientSession,
         project_id: str,
@@ -67,6 +67,7 @@ class GeoDropsClient:
         *,
         query_timeout: float = QUERY_TIMEOUT,
         api_root: str = API_ROOT,
+        token_uri: str = DEFAULT_TOKEN_URI,
     ) -> None:
         """Create a client using the caller's aiohttp session.
 
@@ -76,7 +77,8 @@ class GeoDropsClient:
         key = ServiceAccountKey.from_json(credentials)
         self._project_id = project_id
         self._timeout = query_timeout
-        self._bigquery = BigQuery(session, TokenSource(session, key), project_id, api_root=api_root)
+        tokens = TokenSource(session, key, token_uri=token_uri)
+        self._bigquery = BigQuery(session, tokens, project_id, api_root=api_root)
 
     @property
     def project_id(self) -> str:

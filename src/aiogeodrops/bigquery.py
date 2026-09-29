@@ -157,7 +157,7 @@ class BigQuery:
                 for p in params
             ]
         result = await self._request(
-            "POST", f"/projects/{quote(self._project_id)}/queries", json=body
+            "POST", f"/projects/{quote(self._project_id, safe=':')}/queries", json=body
         )
         job = result.get("jobReference")
         rows: list[Row] = []
@@ -178,7 +178,7 @@ class BigQuery:
         if page_token:
             params["pageToken"] = page_token
         project = job.get("projectId", self._project_id)
-        path = f"/projects/{quote(project)}/queries/{quote(job['jobId'])}"
+        path = f"/projects/{quote(project, safe=':')}/queries/{quote(job['jobId'], safe='')}"
         return await self._request("GET", path, params=params)
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
@@ -202,6 +202,7 @@ class BigQuery:
                 self._api_root + path,
                 headers={"Authorization": f"Bearer {token}"},
                 timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT),
+                allow_redirects=False,
                 **kwargs,
             ) as resp:
                 status, text = resp.status, await resp.text()
