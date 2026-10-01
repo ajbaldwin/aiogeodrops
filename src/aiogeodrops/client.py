@@ -46,6 +46,9 @@ COLUMNS = (
     "deviceBattMV",
     "deviceRssiDbM",
     "miscIsBattPoorQuality",
+    "qcn",
+    "irrConfidencePct",
+    "nextAction",
 )
 # Columns the latest-reading query filters, orders or keys rows by: without
 # one of these there is nothing sensible to query. Every other column is

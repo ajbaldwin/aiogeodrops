@@ -46,6 +46,15 @@ class DeviceReading:
     """Radio signal strength, in dBm."""
     battery_poor: bool | None = None
     """Whether GeoDrops flags the battery as poor quality."""
+    qcn: int = UNCLASSIFIED
+    """GeoDrops' overall quality classification for the reading."""
+    irrigation_confidence_pct: float | None = None
+    """GeoDrops' irrigation confidence, in percent."""
+    next_action: frozenset[str] | None = None
+    """GeoDrops' status codes for the probe (e.g. "ATT_DW_NEW").
+
+    Empty when GeoDrops lists none; None when the column is missing.
+    """
 
     @property
     def all_training(self) -> bool:
@@ -87,6 +96,22 @@ def _flag(row: Mapping[str, Any], column: str) -> bool | None:
     return {"true": True, "false": False}.get(value) if isinstance(value, str) else None
 
 
+def _codes(row: Mapping[str, Any], column: str) -> frozenset[str] | None:
+    """Read a comma-separated code list such as "DW_M_LOW12,CHK_M_HWR,".
+
+    NULL or blank is no codes; None only when the column is missing or holds
+    something other than text.
+    """
+    if column not in row:
+        return None
+    value = row[column]
+    if value is None:
+        return frozenset()
+    if not isinstance(value, str):
+        return None
+    return frozenset(code for part in value.split(",") if (code := part.strip()))
+
+
 def _timestamp(row: Mapping[str, Any], column: str) -> datetime | None:
     """Read GeoDrops' `date` TIMESTAMP column.
 
@@ -122,4 +147,7 @@ def reading_from_row(row: Mapping[str, Any]) -> DeviceReading:
         battery_mv=_number(row, "deviceBattMV"),
         rssi_dbm=_number(row, "deviceRssiDbM"),
         battery_poor=_flag(row, "miscIsBattPoorQuality"),
+        qcn=_classified(row, "qcn"),
+        irrigation_confidence_pct=_number(row, "irrConfidencePct"),
+        next_action=_codes(row, "nextAction"),
     )

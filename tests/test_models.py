@@ -89,3 +89,25 @@ def test_battery_poor_flag(value: object, expected: bool | None) -> None:
 def test_battery_and_signal_default_to_unknown() -> None:
     reading = reading_from_row({"deviceId": 1})
     assert (reading.battery_mv, reading.rssi_dbm, reading.battery_poor) == (None, None, None)
+
+
+def test_overall_quality_and_irrigation_confidence() -> None:
+    reading = reading_from_row({"deviceId": 1, "qcn": 2, "irrConfidencePct": 85.0})
+    assert reading.qcn == 2
+    assert reading.irrigation_confidence_pct == 85.0
+    blank = reading_from_row({"deviceId": 1})
+    assert (blank.qcn, blank.irrigation_confidence_pct) == (UNCLASSIFIED, None)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("DW_M_LOW12,CHK_M_HWR,", {"DW_M_LOW12", "CHK_M_HWR"}), (" ATT_DW_NEW , ", {"ATT_DW_NEW"}),
+     ("", set()), (",", set()), (None, set()), (12, None)],
+)  # fmt: skip
+def test_next_action_codes(value: object, expected: set[str] | None) -> None:
+    codes = reading_from_row({"deviceId": 1, "nextAction": value}).next_action
+    assert codes == (None if expected is None else frozenset(expected))
+
+
+def test_next_action_missing_column_is_unknown() -> None:
+    assert reading_from_row({"deviceId": 1}).next_action is None
