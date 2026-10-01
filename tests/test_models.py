@@ -92,11 +92,20 @@ def test_battery_and_signal_default_to_unknown() -> None:
 
 
 def test_overall_quality_and_irrigation_confidence() -> None:
-    reading = reading_from_row({"deviceId": 1, "qcn": 2, "irrConfidencePct": 85.0})
+    reading = reading_from_row({"deviceId": 1, "qcn": 2, "irrConfidencePct": 0.85})
     assert reading.qcn == 2
-    assert reading.irrigation_confidence_pct == 85.0
+    assert reading.irrigation_confidence_pct == 0.85
     blank = reading_from_row({"deviceId": 1})
     assert (blank.qcn, blank.irrigation_confidence_pct) == (UNCLASSIFIED, None)
+
+
+def test_last_irrigation() -> None:
+    at = datetime(2026, 9, 30, 7, 30)
+    reading = reading_from_row({"deviceId": 1, "lastIrrConfidencePct": 0.24, "lastIrrDate": at})
+    assert reading.last_irrigation_confidence == 0.24
+    assert reading.last_irrigation_at == at.replace(tzinfo=UTC)
+    blank = reading_from_row({"deviceId": 1, "lastIrrConfidencePct": None, "lastIrrDate": None})
+    assert (blank.last_irrigation_confidence, blank.last_irrigation_at) == (None, None)
 
 
 @pytest.mark.parametrize(

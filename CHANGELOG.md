@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0
+
+- New reading fields `last_irrigation_confidence` and `last_irrigation_at`, set by `fetch_latest`: the probe's newest `irrConfidencePct` within the lookback window, and when that reading was taken. GeoDrops sets the column only on readings that show a watering, and probes sync several readings at once, so the latest reading alone usually misses it. The same query computes them, so no extra query is made. Both are `None` when no reading in the window has one, or the column is missing.
+- Docs: `irrigation_confidence_pct` is a fraction from 0 to 1, not a percentage as 0.3.0 said.
+
 ## 0.3.0
 
 New reading fields, read from three more columns. They have defaults, so existing construction keeps working.

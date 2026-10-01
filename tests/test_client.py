@@ -54,6 +54,40 @@ def test_latest_query_filters_ids_and_lookback() -> None:
     assert "QUALIFY ROW_NUMBER() OVER (PARTITION BY deviceId ORDER BY date DESC) = 1" in sql
 
 
+def test_latest_query_carries_the_last_irrigation() -> None:
+    sql = build_latest_query([1001], 12)
+    window = (
+        "OVER (PARTITION BY deviceId ORDER BY date "
+        "ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)"
+    )
+    assert f"LAST_VALUE(irrConfidencePct IGNORE NULLS) {window} AS lastIrrConfidencePct" in sql
+    assert (
+        f"LAST_VALUE(IF(irrConfidencePct IS NULL, NULL, date) IGNORE NULLS) {window} AS lastIrrDate"
+    ) in sql
+
+
+async def test_fetch_latest_reads_the_last_irrigation(
+    client: GeoDropsClient, google: FakeGoogle
+) -> None:
+    google.token_ok()
+    google.reply("GET", TABLE_META, json=table_schema(ALL_COLUMNS))
+    fields = [
+        ("deviceId", "INTEGER"),
+        ("irrConfidencePct", "FLOAT"),
+        ("lastIrrConfidencePct", "FLOAT"),
+        ("lastIrrDate", "TIMESTAMP"),
+    ]
+    rows = [["1001", None, "0.24", "1727589600000000"], ["1002", None, None, None]]
+    google.reply("POST", QUERIES, json=query_result(fields, rows))
+
+    readings = await client.fetch_latest([1001, 1002], 12)
+
+    assert readings[1001].irrigation_confidence_pct is None
+    assert readings[1001].last_irrigation_confidence == 0.24
+    assert readings[1001].last_irrigation_at == datetime(2024, 9, 29, 6, 0, tzinfo=UTC)
+    assert readings[1002].last_irrigation_at is None
+
+
 def test_latest_query_refuses_non_numeric_ids() -> None:
     # device ids are interpolated, so anything but an int must never reach the SQL
     with pytest.raises(ValueError, match="invalid literal"):

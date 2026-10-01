@@ -12,6 +12,10 @@ from typing import Any
 # yet (the probe is still training).
 UNCLASSIFIED = -1
 
+# Names of the latest-reading query's computed columns.
+LAST_IRRIGATION_CONFIDENCE = "lastIrrConfidencePct"
+LAST_IRRIGATION_DATE = "lastIrrDate"
+
 
 @dataclass(frozen=True)
 class DeviceReading:
@@ -49,12 +53,26 @@ class DeviceReading:
     qcn: int = UNCLASSIFIED
     """GeoDrops' overall quality classification for the reading."""
     irrigation_confidence_pct: float | None = None
-    """GeoDrops' irrigation confidence, in percent."""
+    """GeoDrops' irrigation confidence, a fraction from 0 to 1.
+
+    Not a percentage, despite the column's name (irrConfidencePct). GeoDrops
+    sets it only on readings that show a watering, so it is usually None;
+    see last_irrigation_confidence.
+    """
     next_action: frozenset[str] | None = None
     """GeoDrops' status codes for the probe (e.g. "ATT_DW_NEW").
 
     Empty when GeoDrops lists none; None when the column is missing.
     """
+    last_irrigation_confidence: float | None = None
+    """The probe's newest irrigation confidence (0 to 1) in the lookback window.
+
+    Set by GeoDropsClient.fetch_latest only: the irrigation_confidence_pct of
+    the probe's most recent reading that had one, which is seldom this
+    reading. None if no reading in the window had one.
+    """
+    last_irrigation_at: datetime | None = None
+    """When the reading behind last_irrigation_confidence was taken."""
 
     @property
     def all_training(self) -> bool:
@@ -150,4 +168,6 @@ def reading_from_row(row: Mapping[str, Any]) -> DeviceReading:
         qcn=_classified(row, "qcn"),
         irrigation_confidence_pct=_number(row, "irrConfidencePct"),
         next_action=_codes(row, "nextAction"),
+        last_irrigation_confidence=_number(row, LAST_IRRIGATION_CONFIDENCE),
+        last_irrigation_at=_timestamp(row, LAST_IRRIGATION_DATE),
     )
