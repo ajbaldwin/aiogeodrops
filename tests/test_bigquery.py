@@ -14,7 +14,17 @@ from aiogeodrops import (
 from aiogeodrops.auth import ServiceAccountKey, TokenSource
 from aiogeodrops.bigquery import BigQuery, QueryParameter, parse_rows
 
-from .conftest import API, QUERIES, RESULTS, TOKEN, UNREACHABLE, FakeGoogle, query_result
+from .conftest import (
+    API,
+    QUERIES,
+    RESULTS,
+    TABLE_META,
+    TOKEN,
+    UNREACHABLE,
+    FakeGoogle,
+    query_result,
+    table_schema,
+)
 
 
 def _bigquery(
@@ -288,3 +298,47 @@ async def test_query_gives_up_after_the_overall_timeout(
     google.reply("POST", QUERIES, json=query_result([], []), delay=0.5)
     with pytest.raises(GeoDropsConnectionError, match=r"within 0\.05 s"):
         await bigquery.query("SELECT 1", timeout=0.05)
+
+
+async def test_table_columns_reads_table_metadata(bigquery: BigQuery, google: FakeGoogle) -> None:
+    google.token_ok()
+    google.reply("GET", TABLE_META, json=table_schema(["deviceId", "date"]))
+    assert await bigquery.table_columns("geodrops-prod.db_public.p_sensor_unified") == [
+        "deviceId",
+        "date",
+    ]
+    (request,) = google.sent("GET", TABLE_META)
+    assert request.headers["Authorization"] == "Bearer tok-1"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [{}, {"schema": "x"}, {"schema": {"fields": "x"}}, {"schema": {}}],
+)
+async def test_table_columns_without_a_schema_is_empty(
+    bigquery: BigQuery, google: FakeGoogle, payload: dict[str, Any]
+) -> None:
+    google.token_ok()
+    google.reply("GET", TABLE_META, json=payload)
+    assert await bigquery.table_columns("geodrops-prod.db_public.p_sensor_unified") == []
+
+
+async def test_table_columns_skips_malformed_fields(bigquery: BigQuery, google: FakeGoogle) -> None:
+    google.token_ok()
+    fields = [{"name": "deviceId"}, "junk", {"name": 3}, {"type": "STRING"}]
+    google.reply("GET", TABLE_META, json={"schema": {"fields": fields}})
+    assert await bigquery.table_columns("geodrops-prod.db_public.p_sensor_unified") == ["deviceId"]
+
+
+async def test_table_columns_errors_are_typed(bigquery: BigQuery, google: FakeGoogle) -> None:
+    google.token_ok()
+    google.reply("GET", TABLE_META, status=403, json={"error": {"message": "denied"}})
+    with pytest.raises(GeoDropsAccessDeniedError):
+        await bigquery.table_columns("geodrops-prod.db_public.p_sensor_unified")
+
+
+async def test_table_columns_times_out(bigquery: BigQuery, google: FakeGoogle) -> None:
+    google.token_ok()
+    google.reply("GET", TABLE_META, json=table_schema([]), delay=0.5)
+    with pytest.raises(GeoDropsConnectionError, match=r"within 0\.05 s"):
+        await bigquery.table_columns("geodrops-prod.db_public.p_sensor_unified", timeout=0.05)

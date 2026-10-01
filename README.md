@@ -58,6 +58,23 @@ asyncio.run(main())
 `fetch_latest` makes one query for all the device ids you pass. Each query
 gives up after 60 seconds (`query_timeout=` to change).
 
+### When GeoDrops changes its table
+
+GeoDrops' table is theirs to change, and columns have been renamed or dropped
+before. Before querying, the client reads which columns exist (a free metadata
+call, repeated at most every 6 hours) and selects only those:
+
+- A missing column leaves the reading fields it fed as `None` (or
+  `UNCLASSIFIED`). `client.missing_columns` lists them, and one warning is
+  logged.
+- If a query still names an unknown column, the columns are re-read and the
+  query retried once.
+- `GeoDropsSchemaError` is raised only when a column the query can't run
+  without is gone: `deviceId`, `date`, `createdAtOrigin`, and `mfgSn` for
+  `lookup_serial`.
+
+`await client.table_columns()` lists every column GeoDrops publishes.
+
 ## Errors
 
 All errors derive from `GeoDropsError`:
@@ -67,7 +84,8 @@ All errors derive from `GeoDropsError`:
 | `GeoDropsCredentialsError` | The key isn't a usable service-account key | Fix the key; raised by the constructor |
 | `GeoDropsAuthError` | Google rejected the key (deleted, revoked, account disabled) | Create a new key |
 | `GeoDropsAccessDeniedError` | 403: missing BigQuery Job User role, or BigQuery API not enabled | Fix it in Google Cloud; then retry |
-| `GeoDropsQueryError` | BigQuery rejected the query (parent of `GeoDropsAccessDeniedError`) | Check the project id |
+| `GeoDropsSchemaError` | GeoDrops' table lost a column the query can't run without | Update aiogeodrops |
+| `GeoDropsQueryError` | BigQuery rejected the query (parent of `GeoDropsAccessDeniedError` and `GeoDropsSchemaError`) | Check the project id |
 | `GeoDropsConnectionError` | Network error, timeout, Google outage, rate or quota limit | Retry later |
 
 ## Development

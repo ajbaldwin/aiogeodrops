@@ -139,6 +139,35 @@ class BigQuery:
         except TimeoutError as err:
             raise GeoDropsConnectionError(f"Query did not finish within {timeout} s") from err
 
+    async def table_columns(
+        self,
+        table: str,
+        *,
+        timeout: float = 60,  # noqa: ASYNC109 - timeouts become GeoDropsConnectionError
+    ) -> list[str]:
+        """Return the top-level column names of `table` ("project.dataset.table").
+
+        Reads the table's metadata, which scans no data and is not billed. An
+        empty list means the response carried no usable schema.
+        """
+        project, dataset, name = table.split(".")
+        path = (
+            f"/projects/{quote(project, safe=':')}/datasets/{quote(dataset, safe='')}"
+            f"/tables/{quote(name, safe='')}"
+        )
+        try:
+            async with asyncio.timeout(timeout):
+                body = await self._request("GET", path)
+        except TimeoutError as err:
+            raise GeoDropsConnectionError(
+                f"Table metadata did not arrive within {timeout} s"
+            ) from err
+        schema = body.get("schema")
+        fields = schema.get("fields") if isinstance(schema, dict) else None
+        if not isinstance(fields, list):
+            return []
+        return [f["name"] for f in fields if isinstance(f, dict) and isinstance(f.get("name"), str)]
+
     async def _query(self, sql: str, params: Sequence[QueryParameter]) -> list[Row]:
         body: dict[str, Any] = {
             "query": sql,

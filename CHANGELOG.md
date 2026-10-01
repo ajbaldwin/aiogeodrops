@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.0
+
+Survives GeoDrops changing its table's columns. No API changes are needed by callers.
+
+- Before querying, the client reads which columns GeoDrops' table has. This is a free metadata call, made at most every 6 hours. It then selects only those columns, so a dropped or renamed column leaves just the fields it fed as `None` (or `UNCLASSIFIED`) instead of failing every query. It logs one warning when columns go missing and an info line when they return.
+- If BigQuery still reports `Unrecognized name`, the client re-reads the columns and retries once.
+- New `GeoDropsSchemaError` (a `GeoDropsQueryError`) when a column the query can't run without is gone: `deviceId`, `date` or `createdAtOrigin`, plus `mfgSn` for `lookup_serial`. It is also raised when the retry still hits an unknown column.
+- If the table's columns can't be read (for example, no permission for table metadata), every column is selected, as in 0.1.x.
+- New `GeoDropsClient.missing_columns`: the columns the table lacked at the last check.
+- New `GeoDropsClient.table_columns()`: every column in GeoDrops' table.
+- New reading fields, read from three more columns: `battery_mv` (`deviceBattMV`), `rssi_dbm` (`deviceRssiDbM`) and `battery_poor` (`miscIsBattPoorQuality`). They default to `None`, so existing positional and keyword construction keeps working.
+- Readings tolerate a column changing type. Numbers sent as text are read. Values that aren't finite numbers become `None` (or `UNCLASSIFIED`) instead of raising. Numeric fields are now always `float`.
+
 ## 0.1.1
 
 Security hardening; no API changes for callers using the defaults.
