@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0
+
+New reading fields, read from three more columns. They have defaults, so existing construction keeps working.
+
+- `qcn` (`qcn`): GeoDrops' overall quality classification, `UNCLASSIFIED` when unknown, like the per-depth `qcn_d1`..`qcn_d3`.
+- `irrigation_confidence_pct` (`irrConfidencePct`): GeoDrops' irrigation confidence, in percent.
+- `next_action` (`nextAction`): GeoDrops' status codes for the probe, as a `frozenset[str]` parsed from the comma-separated column (e.g. `{"ATT_DW_NEW"}`). Empty when GeoDrops lists none, `None` when the column is missing.
+
 ## 0.2.0
 
 Survives GeoDrops changing its table's columns. No API changes are needed by callers.
