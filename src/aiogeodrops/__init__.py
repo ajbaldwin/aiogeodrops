@@ -8,6 +8,7 @@ from .exceptions import (
     GeoDropsCredentialsError,
     GeoDropsError,
     GeoDropsQueryError,
+    GeoDropsSchemaError,
 )
 from .models import UNCLASSIFIED, DeviceReading
 
@@ -21,4 +22,5 @@ __all__ = [
     "GeoDropsCredentialsError",
     "GeoDropsError",
     "GeoDropsQueryError",
+    "GeoDropsSchemaError",
 ]

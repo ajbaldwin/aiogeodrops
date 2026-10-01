@@ -4,9 +4,16 @@ import aiohttp
 import pytest
 
 from aiogeodrops import GeoDropsClient, GeoDropsConnectionError, GeoDropsCredentialsError
-from aiogeodrops.client import TABLE, build_latest_query, build_serial_lookup_query
+from aiogeodrops.client import (
+    COLUMNS,
+    TABLE,
+    build_latest_query,
+    build_serial_lookup_query,
+)
 
-from .conftest import API, QUERIES, TOKEN, FakeGoogle, query_result
+from .conftest import API, QUERIES, TABLE_META, TOKEN, FakeGoogle, query_result, table_schema
+
+ALL_COLUMNS = [*COLUMNS, "createdAtOrigin"]
 
 _FIELDS = [
     ("deviceId", "INTEGER"),
@@ -74,6 +81,7 @@ async def test_fetch_latest_maps_readings_by_device_id(
     client: GeoDropsClient, google: FakeGoogle
 ) -> None:
     google.token_ok()
+    google.reply("GET", TABLE_META, json=table_schema(ALL_COLUMNS))
     google.reply("POST", QUERIES, json=query_result(_FIELDS, [_ROW_1001, _ROW_1002]))
 
     readings = await client.fetch_latest([1001, 1002], 6)
@@ -101,6 +109,7 @@ async def test_fetch_latest_with_no_devices_makes_no_query(
 
 async def test_lookup_serial_binds_the_serial(client: GeoDropsClient, google: FakeGoogle) -> None:
     google.token_ok()
+    google.reply("GET", TABLE_META, json=table_schema(ALL_COLUMNS))
     google.reply("POST", QUERIES, json=query_result(_FIELDS, [_ROW_1001]))
 
     reading = await client.lookup_serial("AAA111", 12)
@@ -119,6 +128,7 @@ async def test_lookup_serial_binds_the_serial(client: GeoDropsClient, google: Fa
 
 async def test_lookup_unknown_serial_is_none(client: GeoDropsClient, google: FakeGoogle) -> None:
     google.token_ok()
+    google.reply("GET", TABLE_META, json=table_schema(ALL_COLUMNS))
     google.reply("POST", QUERIES, json=query_result(_FIELDS, []))
     assert await client.lookup_serial("ZZZ999", 12) is None
 

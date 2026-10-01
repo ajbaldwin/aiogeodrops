@@ -31,6 +31,17 @@ class GeoDropsQueryError(GeoDropsError):
     """BigQuery rejected the query."""
 
 
+class GeoDropsSchemaError(GeoDropsQueryError):
+    """GeoDrops' table no longer has a column a query cannot run without.
+
+    The table is GeoDrops' to change. Columns that only feed a reading's
+    values are dropped from the query instead (see
+    GeoDropsClient.missing_columns); this is raised only when the columns
+    that filter, order or key the rows are gone, or a query still names an
+    unknown column after re-reading the schema. A newer aiogeodrops is the fix.
+    """
+
+
 class GeoDropsAccessDeniedError(GeoDropsQueryError):
     """BigQuery refused the query with a 403.
 

@@ -1,5 +1,7 @@
 from datetime import UTC, date, datetime
 
+import pytest
+
 from aiogeodrops import UNCLASSIFIED
 from aiogeodrops.models import reading_from_row
 
@@ -35,3 +37,55 @@ def test_timestamp_is_kept_and_naive_means_utc() -> None:
 def test_non_timestamp_date_is_unknown() -> None:
     # e.g. if GeoDrops ever changed the column to a plain DATE
     assert reading_from_row({"deviceId": 1, "date": date(2026, 9, 29)}).read_at is None
+
+
+def test_numbers_sent_as_text_are_read() -> None:
+    # e.g. if GeoDrops changed a FLOAT column to STRING
+    reading = reading_from_row(
+        {"deviceId": 1, "moisturePct": "42.5", "miscBattPercent": 88, "qcnDepth1": "2"}
+    )
+    assert reading.moisture_pct == 42.5
+    assert reading.battery_pct == 88.0
+    assert isinstance(reading.battery_pct, float)
+    assert reading.qcn_d1 == 2
+
+
+@pytest.mark.parametrize("value", ["wet", True, float("nan"), float("inf"), [1], {"v": 1}])
+def test_values_that_are_not_numbers_are_unknown(value: object) -> None:
+    reading = reading_from_row(
+        {"deviceId": 1, "moisturePct": value, "qcnDepth1": value, "moistureIndex": value}
+    )
+    assert reading.moisture_pct is None
+    assert reading.qcn_d1 == UNCLASSIFIED
+    assert reading.moisture_index == UNCLASSIFIED
+
+
+def test_fractional_classification_is_unclassified() -> None:
+    assert reading_from_row({"deviceId": 1, "qcnDepth1": 2.5}).qcn_d1 == UNCLASSIFIED
+    assert reading_from_row({"deviceId": 1, "qcnDepth1": 2.0}).qcn_d1 == 2
+
+
+def test_battery_and_signal_fields() -> None:
+    reading = reading_from_row(
+        {"deviceId": 1, "deviceBattMV": 3010.0, "deviceRssiDbM": -97.0,
+         "miscIsBattPoorQuality": False}
+    )  # fmt: skip
+    assert reading.battery_mv == 3010.0
+    assert reading.rssi_dbm == -97.0
+    assert reading.battery_poor is False
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(True, True), (False, False), ("true", True), ("false", False), (None, None), (1, None),
+     ("yes", None)],
+)  # fmt: skip
+def test_battery_poor_flag(value: object, expected: bool | None) -> None:
+    assert (
+        reading_from_row({"deviceId": 1, "miscIsBattPoorQuality": value}).battery_poor is expected
+    )
+
+
+def test_battery_and_signal_default_to_unknown() -> None:
+    reading = reading_from_row({"deviceId": 1})
+    assert (reading.battery_mv, reading.rssi_dbm, reading.battery_poor) == (None, None, None)

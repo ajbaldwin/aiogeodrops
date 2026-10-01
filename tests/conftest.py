@@ -16,6 +16,7 @@ TOKEN = "/token"
 API = "/bigquery/v2"
 QUERIES = f"{API}/projects/my-project/queries"
 RESULTS = f"{QUERIES}/job_1"
+TABLE_META = f"{API}/projects/geodrops-prod/datasets/db_public/tables/p_sensor_unified"
 # Nothing listens here, so connecting fails straight away.
 UNREACHABLE = "http://127.0.0.1:1"
 
@@ -158,4 +159,12 @@ def query_result(
         "schema": {"fields": [{"name": n, "type": t, "mode": "NULLABLE"} for n, t in fields]},
         "rows": [{"f": [{"v": v} for v in row]} for row in rows],
         **extra,
+    }
+
+
+def table_schema(columns: list[str]) -> dict[str, Any]:
+    """A tables.get response listing these columns."""
+    return {
+        "id": "geodrops-prod:db_public.p_sensor_unified",
+        "schema": {"fields": [{"name": c, "type": "STRING", "mode": "NULLABLE"} for c in columns]},
     }
