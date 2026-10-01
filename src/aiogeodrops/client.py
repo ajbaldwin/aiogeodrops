@@ -12,7 +12,12 @@ import aiohttp
 from .auth import DEFAULT_TOKEN_URI, ServiceAccountKey, TokenSource
 from .bigquery import API_ROOT, BigQuery, QueryParameter, Row
 from .exceptions import GeoDropsQueryError, GeoDropsSchemaError
-from .models import DeviceReading, reading_from_row
+from .models import (
+    LAST_IRRIGATION_CONFIDENCE,
+    LAST_IRRIGATION_DATE,
+    DeviceReading,
+    reading_from_row,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -66,17 +71,41 @@ def _select(columns: Sequence[str]) -> str:
     return "SELECT " + ", ".join(columns)
 
 
+def _last_irrigation(columns: Sequence[str]) -> str:
+    """Select each device's newest irrConfidencePct in the window, and its date.
+
+    GeoDrops sets irrConfidencePct only on the odd reading (one that shows a
+    watering), and probes sync several readings at once, so the latest
+    reading alone would miss most of them.
+    """
+    if "irrConfidencePct" not in columns:
+        return ""
+    window = (
+        "OVER (PARTITION BY deviceId ORDER BY date "
+        "ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)"
+    )
+    return (
+        f",\n      LAST_VALUE(irrConfidencePct IGNORE NULLS) {window}"
+        f" AS {LAST_IRRIGATION_CONFIDENCE}"
+        f",\n      LAST_VALUE(IF(irrConfidencePct IS NULL, NULL, date) IGNORE NULLS) {window}"
+        f" AS {LAST_IRRIGATION_DATE}"
+    )
+
+
 def build_latest_query(
     device_ids: Iterable[int], lookback_hours: int, columns: Sequence[str] = COLUMNS
 ) -> str:
     """Build the SQL for each device's latest reading within the lookback window.
+
+    Each row also carries the device's newest irrigation confidence in the
+    window and when it was read (see _last_irrigation).
 
     Device ids are interpolated, so each must convert to an int. So are
     `columns`, which must come from COLUMNS.
     """
     ids = ", ".join(str(int(d)) for d in device_ids)
     return (
-        f"{_select(columns)}\n"
+        f"{_select(columns)}{_last_irrigation(columns)}\n"
         f"    FROM `{TABLE}`\n"
         f"    WHERE deviceId IN ({ids})\n"
         f"      AND createdAtOrigin > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), "

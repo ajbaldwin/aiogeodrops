@@ -28,7 +28,8 @@ def _unknown_column(name: str) -> dict[str, object]:
 
 def _selected(google: FakeGoogle, index: int = -1) -> list[str]:
     sql = google.sent("POST", QUERIES)[index].json["query"]
-    return sql.partition("\n")[0].removeprefix("SELECT ").split(", ")
+    # The first line names the table's columns; computed columns follow it.
+    return sql.partition("\n")[0].removeprefix("SELECT ").removesuffix(",").split(", ")
 
 
 @pytest.fixture
@@ -202,3 +203,13 @@ async def test_table_columns_lists_every_column(client: GeoDropsClient, google: 
 def test_latest_query_selects_the_given_columns() -> None:
     sql = build_latest_query([1001], 12, ["deviceId", "date"])
     assert sql.startswith("SELECT deviceId, date\n")
+
+
+async def test_missing_irrigation_column_drops_last_irrigation(
+    client: GeoDropsClient, google: FakeGoogle
+) -> None:
+    google.reply("GET", TABLE_META, json=table_schema(_without("irrConfidencePct")))
+    google.reply("POST", QUERIES, json=query_result(_ROW_FIELDS, [_ROW]))
+    readings = await client.fetch_latest([1001], 12)
+    assert "irrConfidencePct" not in google.sent("POST", QUERIES)[-1].json["query"]
+    assert readings[1001].last_irrigation_confidence is None
