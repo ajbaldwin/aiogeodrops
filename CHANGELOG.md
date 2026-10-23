@@ -2,7 +2,7 @@
 
 ## 0.4.1
 
-- New `GeoDropsClient.fetch_battery_history(device_ids, days)`: each probe's battery voltage readings over the last `days` days, oldest first, as `BatteryPoint(read_at, battery_mv)`. One query covers every probe. Rows whose time or voltage can't be read are skipped. It raises `GeoDropsSchemaError` if the table has no `deviceBattMV` column.
+- New `GeoDropsClient.fetch_battery_history(device_ids, days)`: each probe's battery voltage readings over the last `days` days, oldest first, as `BatteryPoint(read_at, battery_mv)`. One query covers every probe. Rows whose time or voltage can't be read are skipped. The query filters on the table's partition column, so it scans only the last few weeks. It raises `GeoDropsSchemaError` if the table lacks `deviceId`, `date` or `deviceBattMV`, and `ValueError` if `days` is less than 1.
 
 ## 0.4.0
 

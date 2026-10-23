@@ -122,13 +122,21 @@ def build_battery_history_query(device_ids: Iterable[int], days: int) -> str:
     """Build the SQL for each device's battery voltage over the last `days` days.
 
     Device ids and days are interpolated, so each must convert to an int.
+    Raises ValueError unless `days` is at least 1.
     """
+    if isinstance(days, bool) or int(days) < 1:
+        raise ValueError(f"days must be a whole number of at least 1, not {days!r}")
     ids = ", ".join(str(int(d)) for d in device_ids)
+    # The table is partitioned on createdAtOrigin, so filtering on it limits
+    # the scan to recent partitions. A day more than `days`: about a fifth of
+    # rows are uploaded before their `date`, which is the end of their slot.
     return (
         f"{_select(_BATTERY_REQUIRED)}\n"
         f"    FROM `{TABLE}`\n"
         f"    WHERE deviceId IN ({ids})\n"
         f"      AND date > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {int(days)} DAY)\n"
+        f"      AND createdAtOrigin > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), "
+        f"INTERVAL {int(days) + 1} DAY)\n"
         f"      AND deviceBattMV IS NOT NULL\n"
         f"    ORDER BY deviceId, date"
     )
@@ -239,7 +247,8 @@ class GeoDropsClient:
         Covers the last `days` days, about 48 readings a day per probe. A
         device with none is left out, and so is a row whose time or voltage
         isn't usable. Makes no query when `device_ids` is empty. Raises
-        GeoDropsSchemaError if the table has no deviceBattMV column.
+        GeoDropsSchemaError if the table lacks deviceId, date or deviceBattMV,
+        and ValueError unless `days` is at least 1.
         """
         ids = [int(d) for d in device_ids]
         if not ids:

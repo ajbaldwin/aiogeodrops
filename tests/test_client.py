@@ -107,6 +107,9 @@ def test_battery_history_query_filters_ids_and_days() -> None:
     assert f"FROM `{TABLE}`" in sql
     assert "deviceId IN (1001, 1002)" in sql
     assert "date > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 14 DAY)" in sql
+    # The table is partitioned on createdAtOrigin: filtering on it keeps the
+    # scan to recent partitions. A day's margin, as uploads can predate `date`.
+    assert "createdAtOrigin > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 15 DAY)" in sql
     assert "deviceBattMV IS NOT NULL" in sql
     assert sql.endswith("ORDER BY deviceId, date")
 
@@ -116,6 +119,12 @@ def test_battery_history_query_refuses_non_numeric_input() -> None:
         build_battery_history_query(["1001) OR (1=1"], 14)  # type: ignore[list-item]
     with pytest.raises(ValueError, match="invalid literal"):
         build_battery_history_query([1001], "14 DAY) OR (1=1")  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("days", [0, -1, True])
+def test_battery_history_query_needs_at_least_a_day(days: int) -> None:
+    with pytest.raises(ValueError, match="days"):
+        build_battery_history_query([1001], days)
 
 
 async def test_fetch_battery_history_groups_points_by_device(
@@ -128,9 +137,11 @@ async def test_fetch_battery_history_groups_points_by_device(
     fields = [("deviceId", "INTEGER"), ("date", "TIMESTAMP"), ("deviceBattMV", "STRING")]
     rows = [
         ["1001", "1727589600000000", "5523.0"],
+        ["1002", "1727589600000000", "4270.0"],
         ["1001", "1727591400000000", "5517.0"],
         ["1001", "1727593200000000", "n/a"],
-        ["1002", "1727589600000000", "4270.0"],
+        # Every row unusable: the device is left out.
+        ["1003", "1727589600000000", "n/a"],
     ]
     google.reply("POST", QUERIES, json=query_result(fields, rows))
 
