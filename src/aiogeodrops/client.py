@@ -15,7 +15,9 @@ from .exceptions import GeoDropsQueryError, GeoDropsSchemaError
 from .models import (
     LAST_IRRIGATION_CONFIDENCE,
     LAST_IRRIGATION_DATE,
+    BatteryPoint,
     DeviceReading,
+    battery_point_from_row,
     reading_from_row,
 )
 
@@ -62,6 +64,8 @@ COLUMNS = (
 REQUIRED_COLUMNS = ("deviceId", "date", "createdAtOrigin")
 # lookup_serial also filters by serial.
 _SERIAL_REQUIRED = (*REQUIRED_COLUMNS, "mfgSn")
+# fetch_battery_history selects just these.
+_BATTERY_REQUIRED = ("deviceId", "date", "deviceBattMV")
 
 # BigQuery's message for a column the table doesn't have.
 _UNKNOWN_COLUMN = "Unrecognized name"
@@ -111,6 +115,22 @@ def build_latest_query(
         f"      AND createdAtOrigin > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), "
         f"INTERVAL {int(lookback_hours)} HOUR)\n"
         f"    QUALIFY ROW_NUMBER() OVER (PARTITION BY deviceId ORDER BY date DESC) = 1"
+    )
+
+
+def build_battery_history_query(device_ids: Iterable[int], days: int) -> str:
+    """Build the SQL for each device's battery voltage over the last `days` days.
+
+    Device ids and days are interpolated, so each must convert to an int.
+    """
+    ids = ", ".join(str(int(d)) for d in device_ids)
+    return (
+        f"{_select(_BATTERY_REQUIRED)}\n"
+        f"    FROM `{TABLE}`\n"
+        f"    WHERE deviceId IN ({ids})\n"
+        f"      AND date > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {int(days)} DAY)\n"
+        f"      AND deviceBattMV IS NOT NULL\n"
+        f"    ORDER BY deviceId, date"
     )
 
 
@@ -210,6 +230,30 @@ class GeoDropsClient:
         )
         readings = (reading_from_row(row) for row in rows)
         return {reading.device_id: reading for reading in readings}
+
+    async def fetch_battery_history(
+        self, device_ids: Iterable[int], days: int
+    ) -> dict[int, list[BatteryPoint]]:
+        """Return each device's battery voltage readings, oldest first.
+
+        Covers the last `days` days, about 48 readings a day per probe. A
+        device with none is left out, and so is a row whose time or voltage
+        isn't usable. Makes no query when `device_ids` is empty. Raises
+        GeoDropsSchemaError if the table has no deviceBattMV column.
+        """
+        ids = [int(d) for d in device_ids]
+        if not ids:
+            return {}
+        rows = await self._query(
+            lambda _columns: build_battery_history_query(ids, days),
+            _BATTERY_REQUIRED,
+        )
+        history: dict[int, list[BatteryPoint]] = {}
+        for row in rows:
+            point = battery_point_from_row(row)
+            if point is not None:
+                history.setdefault(int(row["deviceId"]), []).append(point)
+        return history
 
     async def lookup_serial(self, serial: str, lookback_hours: int) -> DeviceReading | None:
         """Return the latest reading for the probe with this serial, or None.

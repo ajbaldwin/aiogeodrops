@@ -10,10 +10,11 @@ from .exceptions import (
     GeoDropsQueryError,
     GeoDropsSchemaError,
 )
-from .models import UNCLASSIFIED, DeviceReading
+from .models import UNCLASSIFIED, BatteryPoint, DeviceReading
 
 __all__ = [
     "UNCLASSIFIED",
+    "BatteryPoint",
     "DeviceReading",
     "GeoDropsAccessDeniedError",
     "GeoDropsAuthError",

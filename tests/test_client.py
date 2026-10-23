@@ -3,10 +3,17 @@ from datetime import UTC, datetime
 import aiohttp
 import pytest
 
-from aiogeodrops import GeoDropsClient, GeoDropsConnectionError, GeoDropsCredentialsError
+from aiogeodrops import (
+    BatteryPoint,
+    GeoDropsClient,
+    GeoDropsConnectionError,
+    GeoDropsCredentialsError,
+    GeoDropsSchemaError,
+)
 from aiogeodrops.client import (
     COLUMNS,
     TABLE,
+    build_battery_history_query,
     build_latest_query,
     build_serial_lookup_query,
 )
@@ -92,6 +99,72 @@ def test_latest_query_refuses_non_numeric_ids() -> None:
     # device ids are interpolated, so anything but an int must never reach the SQL
     with pytest.raises(ValueError, match="invalid literal"):
         build_latest_query(["1001) OR (1=1"], 12)  # type: ignore[list-item]
+
+
+def test_battery_history_query_filters_ids_and_days() -> None:
+    sql = build_battery_history_query([1001, 1002], 14)
+    assert sql.startswith("SELECT deviceId, date, deviceBattMV\n")
+    assert f"FROM `{TABLE}`" in sql
+    assert "deviceId IN (1001, 1002)" in sql
+    assert "date > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 14 DAY)" in sql
+    assert "deviceBattMV IS NOT NULL" in sql
+    assert sql.endswith("ORDER BY deviceId, date")
+
+
+def test_battery_history_query_refuses_non_numeric_input() -> None:
+    with pytest.raises(ValueError, match="invalid literal"):
+        build_battery_history_query(["1001) OR (1=1"], 14)  # type: ignore[list-item]
+    with pytest.raises(ValueError, match="invalid literal"):
+        build_battery_history_query([1001], "14 DAY) OR (1=1")  # type: ignore[arg-type]
+
+
+async def test_fetch_battery_history_groups_points_by_device(
+    client: GeoDropsClient, google: FakeGoogle
+) -> None:
+    google.token_ok()
+    google.reply("GET", TABLE_META, json=table_schema(ALL_COLUMNS))
+    # As if GeoDrops had changed the column to STRING: numbers sent as text are
+    # still read, and anything else is skipped rather than failing the fetch.
+    fields = [("deviceId", "INTEGER"), ("date", "TIMESTAMP"), ("deviceBattMV", "STRING")]
+    rows = [
+        ["1001", "1727589600000000", "5523.0"],
+        ["1001", "1727591400000000", "5517.0"],
+        ["1001", "1727593200000000", "n/a"],
+        ["1002", "1727589600000000", "4270.0"],
+    ]
+    google.reply("POST", QUERIES, json=query_result(fields, rows))
+
+    history = await client.fetch_battery_history([1001, 1002, 1003], 14)
+
+    assert history == {
+        1001: [
+            BatteryPoint(datetime(2024, 9, 29, 6, 0, tzinfo=UTC), 5523.0),
+            BatteryPoint(datetime(2024, 9, 29, 6, 30, tzinfo=UTC), 5517.0),
+        ],
+        1002: [BatteryPoint(datetime(2024, 9, 29, 6, 0, tzinfo=UTC), 4270.0)],
+    }
+    (request,) = google.sent("POST", QUERIES)
+    assert "deviceId IN (1001, 1002, 1003)" in request.json["query"]
+    assert "INTERVAL 14 DAY" in request.json["query"]
+
+
+async def test_fetch_battery_history_with_no_devices_makes_no_query(
+    client: GeoDropsClient, google: FakeGoogle
+) -> None:
+    assert await client.fetch_battery_history([], 14) == {}
+    assert google.sent("POST", QUERIES) == []
+
+
+async def test_fetch_battery_history_needs_the_voltage_column(
+    client: GeoDropsClient, google: FakeGoogle
+) -> None:
+    google.token_ok()
+    columns = [c for c in ALL_COLUMNS if c != "deviceBattMV"]
+    google.reply("GET", TABLE_META, json=table_schema(columns))
+
+    with pytest.raises(GeoDropsSchemaError, match="deviceBattMV"):
+        await client.fetch_battery_history([1001], 14)
+    assert google.sent("POST", QUERIES) == []
 
 
 def test_serial_lookup_query_is_parameterized() -> None:
