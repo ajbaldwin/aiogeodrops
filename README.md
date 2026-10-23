@@ -58,6 +58,11 @@ asyncio.run(main())
 `fetch_latest` makes one query for all the device ids you pass. Each query
 gives up after 60 seconds (`query_timeout=` to change).
 
+`fetch_battery_history(device_ids, days)` returns each probe's battery voltage
+readings over the last `days` days, oldest first, as `BatteryPoint(read_at,
+battery_mv)`: about 48 a day per probe, in one query. Use it to judge how fast
+a battery is draining.
+
 ### When GeoDrops changes its table
 
 GeoDrops' table is theirs to change, and columns have been renamed or dropped
@@ -70,8 +75,8 @@ call, repeated at most every 6 hours) and selects only those:
 - If a query still names an unknown column, the columns are re-read and the
   query retried once.
 - `GeoDropsSchemaError` is raised only when a column the query can't run
-  without is gone: `deviceId`, `date`, `createdAtOrigin`, and `mfgSn` for
-  `lookup_serial`.
+  without is gone: `deviceId`, `date`, `createdAtOrigin`, `mfgSn` for
+  `lookup_serial`, and `deviceBattMV` for `fetch_battery_history`.
 
 `await client.table_columns()` lists every column GeoDrops publishes.
 

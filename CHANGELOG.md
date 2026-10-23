@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1
+
+- New `GeoDropsClient.fetch_battery_history(device_ids, days)`: each probe's battery voltage readings over the last `days` days, oldest first, as `BatteryPoint(read_at, battery_mv)`. One query covers every probe. Rows whose time or voltage can't be read are skipped. The query filters on the table's partition column, so it scans only the last few weeks. It raises `GeoDropsSchemaError` if the table lacks `deviceId`, `date` or `deviceBattMV`, and `ValueError` if `days` is less than 1.
+
 ## 0.4.0
 
 - New reading fields `last_irrigation_confidence` and `last_irrigation_at`, set by `fetch_latest`: the probe's newest `irrConfidencePct` within the lookback window, and when that reading was taken. GeoDrops sets the column only on readings that show a watering, and probes sync several readings at once, so the latest reading alone usually misses it. The same query computes them, so no extra query is made. Both are `None` when no reading in the window has one, or the column is missing.

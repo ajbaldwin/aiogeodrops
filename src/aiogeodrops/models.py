@@ -80,6 +80,21 @@ class DeviceReading:
         return self.qcn_d1 == self.qcn_d2 == self.qcn_d3 == UNCLASSIFIED
 
 
+@dataclass(frozen=True)
+class BatteryPoint:
+    """One battery voltage reading from a probe's history.
+
+    Values come as GeoDrops serves them. Some probes report exactly 7100 mV,
+    which looks like a ceiling or placeholder rather than a measurement;
+    callers judging a trend may want to drop it.
+    """
+
+    read_at: datetime
+    """When the probe took the reading."""
+    battery_mv: float
+    """Battery voltage, in millivolts."""
+
+
 def _number(row: Mapping[str, Any], column: str) -> float | None:
     """Read a numeric column; None if it is missing or not a finite number.
 
@@ -171,3 +186,12 @@ def reading_from_row(row: Mapping[str, Any]) -> DeviceReading:
         last_irrigation_confidence=_number(row, LAST_IRRIGATION_CONFIDENCE),
         last_irrigation_at=_timestamp(row, LAST_IRRIGATION_DATE),
     )
+
+
+def battery_point_from_row(row: Mapping[str, Any]) -> BatteryPoint | None:
+    """Build a history point from a row; None if its time or voltage is unusable."""
+    read_at = _timestamp(row, "date")
+    battery_mv = _number(row, "deviceBattMV")
+    if read_at is None or battery_mv is None:
+        return None
+    return BatteryPoint(read_at, battery_mv)
