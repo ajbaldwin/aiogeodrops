@@ -8,7 +8,7 @@ account. It is built on `aiohttp` and `PyJWT` only (no Google Cloud SDK, no
 gRPC), takes your `aiohttp.ClientSession`, and is fully typed.
 
 It is the library behind the
-[GeoDrops Home Assistant integration](https://github.com/ajbaldwin/ha-geodrops-hacs).
+[GeoDrops Home Assistant integration](https://github.com/ajbaldwin/ha-geodrops).
 
 ## Install
 
